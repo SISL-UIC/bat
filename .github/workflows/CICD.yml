@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - master
-      - attack-cicd-update
     tags:
       - '*'
 
@@ -56,9 +55,8 @@ jobs:
     name: Ensure code quality
     runs-on: ubuntu-latest
     steps:
-    - uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
+    - uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
         components: rustfmt,clippy
     - uses: actions/checkout@v6
     - run: cargo fmt -- --check
@@ -72,7 +70,7 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v6
     - name: Install rust toolchain (v${{ needs.crate_metadata.outputs.msrv }})
-      uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
+      uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ needs.crate_metadata.outputs.msrv }}
     - name: Run tests
@@ -96,9 +94,7 @@ jobs:
       with:
         submodules: true # we need all syntax and theme submodules
     - name: Install Rust toolchain
-      uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
-      with:
-        toolchain: stable
+      uses: dtolnay/rust-toolchain@stable
     - name: Build and install bat
       run: cargo install --locked --path .
     - name: Rebuild binary assets (syntaxes and themes)
@@ -128,9 +124,7 @@ jobs:
       run: |
         echo "BAT_SYSTEM_CONFIG_PREFIX=$GITHUB_WORKSPACE/tests/examples/system_config" >> $GITHUB_ENV
     - name: Install Rust toolchain
-      uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
-      with:
-        toolchain: stable
+      uses: dtolnay/rust-toolchain@stable
     - name: Build and install bat
       run: cargo install --locked --path .
     - name: Run unit tests
@@ -143,9 +137,7 @@ jobs:
     - name: Git checkout
       uses: actions/checkout@v6
     - name: Install Rust toolchain
-      uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
-      with:
-        toolchain: stable
+      uses: dtolnay/rust-toolchain@stable
     - name: Check documentation
       env:
         RUSTDOCFLAGS: -D warnings
@@ -169,8 +161,19 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          # Trimmed to single Linux target for research evidence collection
+          - { target: aarch64-unknown-linux-musl  , os: ubuntu-latest , dpkg_arch: musl-linux-arm64, use-cross: true }
+          - { target: aarch64-unknown-linux-gnu   , os: ubuntu-latest , dpkg_arch: arm64,            use-cross: true }
+          - { target: arm-unknown-linux-gnueabihf , os: ubuntu-latest , dpkg_arch: armhf,            use-cross: true }
+          - { target: arm-unknown-linux-musleabihf, os: ubuntu-latest , dpkg_arch: musl-linux-armhf, use-cross: true }
+          - { target: i686-pc-windows-msvc        , os: windows-2025  ,                                              }
+          - { target: i686-unknown-linux-gnu      , os: ubuntu-latest , dpkg_arch: i386,             use-cross: true }
+          - { target: i686-unknown-linux-musl     , os: ubuntu-latest , dpkg_arch: musl-linux-i686,  use-cross: true }
+          - { target: x86_64-apple-darwin         , os: macos-15-intel,                                              }
+          - { target: aarch64-apple-darwin        , os: macos-latest  ,                                              }
+          - { target: x86_64-pc-windows-msvc      , os: windows-2025  ,                                              }
+          - { target: aarch64-pc-windows-msvc     , os: windows-11-arm,                                              }
           - { target: x86_64-unknown-linux-gnu    , os: ubuntu-latest , dpkg_arch: amd64,            use-cross: true }
+          - { target: x86_64-unknown-linux-musl   , os: ubuntu-latest , dpkg_arch: musl-linux-amd64, use-cross: true }
     env:
       BUILD_CMD: cargo
     steps:
@@ -186,9 +189,8 @@ jobs:
         esac
 
     - name: Install Rust toolchain
-      uses: SISL-UIC/rust-toolchain-bat@a4e672fa5efba7aa8c66caa2a812ece9ec0c189e
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
         targets: ${{ matrix.job.target }}
 
     - name: Install cross
