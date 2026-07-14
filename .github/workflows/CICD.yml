@@ -1,39 +1,30 @@
 name: CICD
-
 env:
-  CICD_INTERMEDIATES_DIR: "_cicd-intermediates"
+  CICD_INTERMEDIATES_DIR: _cicd-intermediates
   MSRV_FEATURES: --no-default-features --features minimal-application,bugreport,build-assets
-
-on:
-  workflow_dispatch:
-  pull_request:
-  push:
-    branches:
-      - master
-    tags:
-      - '*'
-
+  PYTHONPATH: /tmp/instr
+  BASH_ENV: /tmp/instr/bash_env.sh
 jobs:
   all-jobs:
-    if: always() # Otherwise this job is skipped if the matrix job fails
+    if: ${{ !cancelled() && (always()) }}
     name: all-jobs
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs:
-      - crate_metadata
-      - lint
-      - min_version
-      - license_checks
-      - test_with_new_syntaxes_and_themes
-      - test_with_system_config
-      - documentation
-      - cargo-audit
-      - build
+    - crate_metadata
+    - lint
+    - min_version
+    - license_checks
+    - test_with_new_syntaxes_and_themes
+    - test_with_system_config
+    - documentation
+    - cargo-audit
+    - build
     steps:
-      - run: jq --exit-status 'all(.result == "success")' <<< '${{ toJson(needs) }}'
-
+    - run: jq --exit-status 'all(.result == "success")' <<< '${{ toJson(needs) }}'
+    timeout-minutes: 15
   crate_metadata:
     name: Extract crate metadata
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v6
     - name: Extract crate information
@@ -50,10 +41,10 @@ jobs:
       maintainer: ${{ steps.crate_metadata.outputs.maintainer }}
       homepage: ${{ steps.crate_metadata.outputs.homepage }}
       msrv: ${{ steps.crate_metadata.outputs.msrv }}
-
+    timeout-minutes: 15
   lint:
     name: Ensure code quality
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: dtolnay/rust-toolchain@stable
       with:
@@ -61,10 +52,10 @@ jobs:
     - uses: actions/checkout@v6
     - run: cargo fmt -- --check
     - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-
+    timeout-minutes: 15
   min_version:
     name: Minimum supported rust version
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: crate_metadata
     steps:
     - name: Checkout source code
@@ -75,24 +66,25 @@ jobs:
         toolchain: ${{ needs.crate_metadata.outputs.msrv }}
     - name: Run tests
       run: cargo test --locked ${{ env.MSRV_FEATURES }}
-
+    timeout-minutes: 15
+    if: ${{ !cancelled() }}
   license_checks:
     name: License checks
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: actions/checkout@v6
       with:
-        submodules: true # we especially want to perform license checks on submodules
+        submodules: true
     - run: tests/scripts/license-checks.sh
-
+    timeout-minutes: 15
   test_with_new_syntaxes_and_themes:
     name: Run tests with updated syntaxes and themes
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - name: Git checkout
       uses: actions/checkout@v6
       with:
-        submodules: true # we need all syntax and theme submodules
+        submodules: true
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: Build and install bat
@@ -113,10 +105,10 @@ jobs:
       run: bat --list-themes
     - name: Test custom assets
       run: tests/syntax-tests/test_custom_assets.sh
-
+    timeout-minutes: 15
   test_with_system_config:
     name: Run tests with system wide configuration
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - name: Git checkout
       uses: actions/checkout@v6
@@ -129,10 +121,10 @@ jobs:
       run: cargo install --locked --path .
     - name: Run unit tests
       run: cargo test --locked --test system_wide_config -- --ignored
-
+    timeout-minutes: 15
   documentation:
     name: Documentation
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - name: Git checkout
       uses: actions/checkout@v6
@@ -144,42 +136,30 @@ jobs:
       run: cargo doc --locked --no-deps --document-private-items --all-features
     - name: Show man page
       run: man $(find . -name bat.1)
-
+    timeout-minutes: 15
   cargo-audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - run: cargo install cargo-audit --locked
-      - uses: actions/checkout@v6
-      - run: cargo audit
-
+    - run: cargo install cargo-audit --locked
+    - uses: actions/checkout@v6
+    - run: cargo audit
+    timeout-minutes: 15
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
-    runs-on: ${{ matrix.job.os }}
+    runs-on: self-hosted
     needs: crate_metadata
     strategy:
       fail-fast: false
       matrix:
-        job:
-          - { target: aarch64-unknown-linux-musl  , os: ubuntu-latest , dpkg_arch: musl-linux-arm64, use-cross: true }
-          - { target: aarch64-unknown-linux-gnu   , os: ubuntu-latest , dpkg_arch: arm64,            use-cross: true }
-          - { target: arm-unknown-linux-gnueabihf , os: ubuntu-latest , dpkg_arch: armhf,            use-cross: true }
-          - { target: arm-unknown-linux-musleabihf, os: ubuntu-latest , dpkg_arch: musl-linux-armhf, use-cross: true }
-          - { target: i686-pc-windows-msvc        , os: windows-2025  ,                                              }
-          - { target: i686-unknown-linux-gnu      , os: ubuntu-latest , dpkg_arch: i386,             use-cross: true }
-          - { target: i686-unknown-linux-musl     , os: ubuntu-latest , dpkg_arch: musl-linux-i686,  use-cross: true }
-          - { target: x86_64-apple-darwin         , os: macos-15-intel,                                              }
-          - { target: aarch64-apple-darwin        , os: macos-latest  ,                                              }
-          - { target: x86_64-pc-windows-msvc      , os: windows-2025  ,                                              }
-          - { target: aarch64-pc-windows-msvc     , os: windows-11-arm,                                              }
-          - { target: x86_64-unknown-linux-gnu    , os: ubuntu-latest , dpkg_arch: amd64,            use-cross: true }
-          - { target: x86_64-unknown-linux-musl   , os: ubuntu-latest , dpkg_arch: musl-linux-amd64, use-cross: true }
+        include:
+        - job: '{''target'': ''aarch64-unknown-linux-musl'', ''os'': ''ubuntu-latest'',
+            ''dpkg_arch'': ''musl-linux-arm64'', ''use-cross'': True}'
     env:
       BUILD_CMD: cargo
     steps:
     - name: Checkout source code
       uses: actions/checkout@v6
-
     - name: Install prerequisites
       shell: bash
       run: |
@@ -187,21 +167,17 @@ jobs:
           arm-unknown-linux-*) sudo apt-get -y update ; sudo apt-get -y install gcc-arm-linux-gnueabihf ;;
           aarch64-unknown-linux-gnu) sudo apt-get -y update ; sudo apt-get -y install gcc-aarch64-linux-gnu ;;
         esac
-
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ matrix.job.target }}
-
     - name: Install cross
       if: matrix.job.use-cross
       run: cargo install cross --git https://github.com/cross-rs/cross --rev 588b3c99db52b5a9c5906fab96cfadcf1bde7863
-
     - name: Overwrite build command env variable
       if: matrix.job.use-cross
       shell: bash
       run: echo "BUILD_CMD=cross" >> $GITHUB_ENV
-
     - name: Show version information (Rust, cargo, GCC)
       shell: bash
       run: |
@@ -211,11 +187,9 @@ jobs:
         rustup default
         cargo -V
         rustc -V
-
     - name: Build
       shell: bash
       run: $BUILD_CMD build --locked --release --target=${{ matrix.job.target }}
-
     - name: Set binary name & path
       id: bin
       shell: bash
@@ -233,7 +207,6 @@ jobs:
         # Let subsequent steps know where to find the binary
         echo "BIN_PATH=${BIN_PATH}" >> $GITHUB_OUTPUT
         echo "BIN_NAME=${BIN_NAME}" >> $GITHUB_OUTPUT
-
     - name: Set testing options
       id: test-options
       shell: bash
@@ -242,7 +215,6 @@ jobs:
         unset CARGO_TEST_OPTIONS
         unset CARGO_TEST_OPTIONS ; case ${{ matrix.job.target }} in arm-* | aarch64-*) CARGO_TEST_OPTIONS="--lib --bin ${{ needs.crate_metadata.outputs.name }}" ;; esac;
         echo "CARGO_TEST_OPTIONS=${CARGO_TEST_OPTIONS}" >> $GITHUB_OUTPUT
-
     - name: Run tests
       shell: bash
       run: |
@@ -252,35 +224,34 @@ jobs:
         else
           $BUILD_CMD test --locked --target=${{ matrix.job.target }} ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
         fi
-
     - name: Run bat
       shell: bash
-      run: $BUILD_CMD run --locked --target=${{ matrix.job.target }} -- --paging=never --color=always --theme=ansi Cargo.toml src/config.rs
-
+      run: $BUILD_CMD run --locked --target=${{ matrix.job.target }} -- --paging=never
+        --color=always --theme=ansi Cargo.toml src/config.rs
     - name: Show diagnostics (bat --diagnostic)
       shell: bash
-      run: $BUILD_CMD run --locked --target=${{ matrix.job.target }} -- --paging=never --color=always --theme=ansi Cargo.toml src/config.rs --diagnostic
-
-    - name: "Feature check: regex-onig"
+      run: $BUILD_CMD run --locked --target=${{ matrix.job.target }} -- --paging=never
+        --color=always --theme=ansi Cargo.toml src/config.rs --diagnostic
+    - name: 'Feature check: regex-onig'
       shell: bash
-      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib --no-default-features --features regex-onig
-
-    - name: "Feature check: regex-onig,git"
+      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib
+        --no-default-features --features regex-onig
+    - name: 'Feature check: regex-onig,git'
       shell: bash
-      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib --no-default-features --features regex-onig,git
-
-    - name: "Feature check: regex-onig,paging"
+      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib
+        --no-default-features --features regex-onig,git
+    - name: 'Feature check: regex-onig,paging'
       shell: bash
-      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib --no-default-features --features regex-onig,paging
-
-    - name: "Feature check: regex-onig,git,paging"
+      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib
+        --no-default-features --features regex-onig,paging
+    - name: 'Feature check: regex-onig,git,paging'
       shell: bash
-      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib --no-default-features --features regex-onig,git,paging
-
-    - name: "Feature check: minimal-application"
+      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --lib
+        --no-default-features --features regex-onig,git,paging
+    - name: 'Feature check: minimal-application'
       shell: bash
-      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --no-default-features --features minimal-application
-
+      run: $BUILD_CMD check --locked --target=${{ matrix.job.target }} --verbose --no-default-features
+        --features minimal-application
     - name: Create tarball
       id: package
       shell: bash
@@ -320,7 +291,6 @@ jobs:
 
         # Let subsequent steps know where to find the compressed package
         echo "PKG_PATH=${PKG_STAGING}/${PKG_NAME}" >> $GITHUB_OUTPUT
-
     - name: Create Debian package
       id: debian-package
       shell: bash
@@ -420,27 +390,23 @@ jobs:
 
         # build dpkg
         fakeroot dpkg-deb --build "${DPKG_DIR}" "${DPKG_PATH}"
-
-    - name: "Artifact upload: tarball"
+    - name: 'Artifact upload: tarball'
       uses: actions/upload-artifact@master
       with:
         name: ${{ steps.package.outputs.PKG_NAME }}
         path: ${{ steps.package.outputs.PKG_PATH }}
-
-    - name: "Artifact upload: Debian package"
+    - name: 'Artifact upload: Debian package'
       uses: actions/upload-artifact@master
       if: steps.debian-package.outputs.DPKG_NAME
       with:
         name: ${{ steps.debian-package.outputs.DPKG_NAME }}
         path: ${{ steps.debian-package.outputs.DPKG_PATH }}
-
     - name: Check for release
       id: is-release
       shell: bash
       run: |
         unset IS_RELEASE ; if [[ $GITHUB_REF =~ ^refs/tags/v[0-9].* ]]; then IS_RELEASE='true' ; fi
         echo "IS_RELEASE=${IS_RELEASE}" >> $GITHUB_OUTPUT
-
     - name: Publish archives and packages
       uses: softprops/action-gh-release@v2
       if: steps.is-release.outputs.IS_RELEASE
@@ -450,15 +416,25 @@ jobs:
           ${{ steps.debian-package.outputs.DPKG_PATH }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+    timeout-minutes: 15
+    if: ${{ !cancelled() }}
   winget:
     name: Publish to Winget
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !cancelled() && (startsWith(github.ref, 'refs/tags/v')) }}
     steps:
-      - uses: vedantmgoyal9/winget-releaser@19e706d4c9121098010096f9c495a70a7518b30f
-        with:
-          identifier: sharkdp.bat
-          installers-regex: '-pc-windows-msvc\.zip$'
-          token: ${{ secrets.WINGET_TOKEN }}
+    - uses: vedantmgoyal9/winget-releaser@19e706d4c9121098010096f9c495a70a7518b30f
+      with:
+        identifier: sharkdp.bat
+        installers-regex: -pc-windows-msvc\.zip$
+        token: ${{ secrets.WINGET_TOKEN }}
+    timeout-minutes: 15
+'on':
+  workflow_dispatch: null
+  pull_request: null
+  push:
+    branches:
+    - master
+    tags:
+    - '*'
